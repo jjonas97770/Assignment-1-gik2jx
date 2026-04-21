@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="sv">
+  <head>
+    <meta charset="UTF-8" />
+    <title>GIS Uppgift 1, 2 & 3</title>
+
+    <!--
+    Leaflet CSS – innehåller alla stilar som Leaflet behöver för att
+    rita kartan korrekt, t.ex. zoomknappar, popups och markörer.
+    Måste laddas innan Leaflet JS annars ser kartan trasig ut.
+  -->
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+
+    <!--
+    Turf.js – ett geografiskt beräkningsbibliotek för JavaScript.
+    Används för att:
+      1. Skapa buffertzoner (cirklar) runt punkter på kartan
+      2. Kontrollera om två ytor geografiskt överlappar varandra
+    Utan Turf.js skulle dessa beräkningar kräva komplex matematik
+    för att hantera jordens krökning.
+  -->
+    <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
+
+    <style>
+      /*
+      Tar bort webbläsarens standardmarginaler så att kartan
+      kan fylla hela fönstret utan vita kanter runt om.
+    */
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        display: flex;
+      }
+
+      /*
+      Kartan tar upp hela webbläsarens höjd (100vh = 100% av fönsterhöjden).
+      flex: 1 gör att kartan fyller all tillgänglig bredd bredvid sidebaren.
+    */
+      #map {
+        height: 100vh;
+        flex: 1;
+      }
+
+      /*
+      Sidebaren är en fast panel på höger sida av skärmen.
+      Den visar detaljerad information om de 5 valda platserna i Task 2.
+      overflow-y: auto lägger till en scrollbar om innehållet är längre än fönstret.
+      display: none gör att den är dold tills användaren klickar på knappen.
+    */
+      #sidebar {
+        width: 300px;
+        height: 100vh;
+        background: #f9f9f9;
+        border-left: 2px solid #ccc;
+        overflow-y: auto;
+        padding: 16px;
+        box-sizing: border-box;
+        display: none;
+      }
+
+      #sidebar h2 {
+        margin-top: 0;
+        font-size: 18px;
+        border-bottom: 2px solid #333;
+        padding-bottom: 8px;
+      }
+
+      /*
+      Varje platskort i sidebaren är en vit ruta med rundade hörn.
+      cursor: pointer visar en hand när man håller musen över kortet,
+      vilket signalerar att det är klickbart.
+      transition skapar en mjuk animation när skuggan ändras vid hover.
+    */
+      .platskort {
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 12px;
+        cursor: pointer;
+        transition: box-shadow 0.2s;
+      }
+
+      .platskort:hover {
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+
+      .platskort h3 {
+        margin: 0 0 6px 0;
+        font-size: 14px;
+        color: #222;
+      }
+
+      .platskort p {
+        margin: 3px 0;
+        font-size: 12px;
+        color: #555;
+      }
+
+      /*
+      Etikett som visar platsens kategori (t.ex. Museum, Bibliotek).
+      border-radius: 12px ger den en pill-formad rundad stil.
+    */
+      .etikett {
+        display: inline-block;
+        background: #007bff;
+        color: white;
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 12px;
+        margin-top: 6px;
+      }
+
+      /*
+      Knapprade som flyter ovanpå kartan längst upp i mitten.
+      position: absolute och z-index: 1000 gör att den ligger
+      ovanpå kartan utan att påverka kartans layout.
+      transform: translateX(-50%) centrerar raden exakt i mitten.
+    */
+      #knappar {
+        position: absolute;
+        top: 15px;
+        left: 50%;
+        transform: translateX(-50%);
+        z-index: 1000;
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: center;
+      }
+
+      /*
+      Grundstil för alla knappar i applikationen.
+      box-shadow ger en lätt skugga som får knapparna att se
+      upphöjda ut mot kartbakgrunden.
+    */
+      button {
+        padding: 10px 18px;
+        background: white;
+        border: 2px solid #333;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: bold;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+      }
+
+      button:hover {
+        background: #f0f0f0;
+      }
+
+      /*
+      Rensa-knappen är röd för att signalera en destruktiv åtgärd
+      (tar bort allt från kartan).
+    */
+      #rensa {
+        border-color: red;
+        color: red;
+      }
+
+      /*
+      Knappen för Task 2 är blå för att skilja den från Task 1-knapparna.
+    */
+      #visaPlatser {
+        border-color: #007bff;
+        color: #007bff;
+      }
+
+      /*
+      Knappen för Task 3 är grön eftersom den visar
+      matbutiker och buffertzoner i gröna nyanser.
+    */
+      #visaSupermarkets {
+        border-color: green;
+        color: green;
+      }
+
+      /*
+  Knappen för Task 4 får en lila färg för att
+  skilja den visuellt från övriga knappar.
+*/
+      #visaBild {
+        border-color: purple;
+        color: purple;
+      }
+    </style>
+  </head>
+  <body>
+    <!--
+    Knapprad som ligger ovanpå kartan.
+    Varje knapp anropar en specifik JavaScript-funktion
+    som hanterar ett eget kartlager.
+  -->
+    <div id="knappar">
+      <!--
+      Task 1 – knappar för att rita geometriska former på kartan.
+      Varje knapp skapar en ny feature och visar en popup med
+      information och bild när man klickar på den.
+    -->
+      <button onclick="laggTillPunkt()">📍 Punkt</button>
+      <button onclick="laggTillLinje()">📏 Linje</button>
+      <button onclick="laggTillPolygon()">🔷 Polygon</button>
+      <button id="rensa" onclick="rensaKarta()">🗑 Rensa</button>
+
+      <!--
+      Task 2 – visar 5 utvalda platser i Stockholm som markörer
+      och öppnar en sidebar med detaljerad information om varje plats.
+      Klick igen döljer sidebaren och tar bort markörerna.
+    -->
+      <button id="visaPlatser" onclick="visaTask2()">🏙 Visa 5 platser</button>
+
+      <!--
+      Task 3 – laddar supermarket.geojson från servern och visar
+      butikerna på kartan med 1km buffertzoner.
+      Gröna buffers överlappar inte, blå buffers överlappar.
+      Klick igen tar bort alla supermarket-lager.
+    -->
+      <button id="visaSupermarkets" onclick="visaTask3()">
+        🛒 Supermarkets
+      </button>
+
+      <!--
+  Task 4 – lägger en historisk kartbild ovanpå bakgrundskartan
+  över Stockholm. Klick igen tar bort överlagringen.
+-->
+      <button id="visaBild" onclick="visaTask4()">🖼 Bildöverlagring</button>
+    </div>
+
+    <!--
+    Behållaren där Leaflet ritar kartan.
+    Leaflet hittar detta element via id="map" när L.map('map') anropas.
+  -->
+    <div id="map"></div>
+
+    <!--
+    Sidebar för Task 2.
+    Innehåller klickbara kort för varje plats i Stockholm.
+    Är dold från start (display: none i CSS) och visas
+    när användaren klickar på "Visa 5 platser"-knappen.
+  -->
+    <div id="sidebar">
+      <h2>📍 Stockholm – 5 platser</h2>
+      <div id="sidebar-innehall"></div>
+    </div>
+
+    <!--
+    Leaflet JavaScript-biblioteket.
+    Placeras efter HTML-elementen så att #map-elementet
+    redan finns i dokumentet när Leaflet försöker hitta det.
+  -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+      // ═══════════════════════════════════════════════════════════
+      // KARTA
+      //
+      // L.map('map') skapar en interaktiv karta i elementet med id="map".
+      // setView([latitud, longitud], zoomnivå) bestämmer startposition.
+      // Stockholm ligger på ungefär 59.332°N, 18.065°E.
+      // Zoomnivå 13 ger en bra översikt över innerstaden.
+      // ═══════════════════════════════════════════════════════════
+      var karta = L.map("map").setView([59.332, 18.065], 13);
+
+      /*
+          Bakgrundskarta från OpenStreetMap.
+          {s} = subdomän för lastbalansering
+          {z} = zoomnivå
+          {x} och {y} = rutkoordinater i kartans rutnät
+        */
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: "© OpenStreetMap",
+      }).addTo(karta);
+
+      // ═══════════════════════════════════════════════════════════
+      // LAGERHANTERING
+      //
+      // aktivaLager är en array som håller koll på alla lager som
+      // lagts till av Task 1-knapparna (punkt, linje, polygon).
+      // När användaren klickar "Rensa" tas alla dessa lager bort.
+      // Task 2 och Task 3 hanterar sina egna lager separat.
+      // ═══════════════════════════════════════════════════════════
+      var aktivaLager = [];
+
+      /*
+          Lägger till ett lager på kartan och sparar en referens
+          i aktivaLager-arrayen så att det kan tas bort senare.
+        */
+      function laggTillLager(lager) {
+        lager.addTo(karta);
+        aktivaLager.push(lager);
+      }
+
+      /*
+          Tar bort alla lager i aktivaLager från kartan
+          och tömmer arrayen för att frigöra minne.
+        */
+      function rensaKarta() {
+        aktivaLager.forEach(function (l) {
+          karta.removeLayer(l);
+        });
+        aktivaLager.length = 0;
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // TASK 1 — PUNKT
+      //
+      // L.marker([lat, lng]) placerar en standardmarkör på kartan.
+      // bindPopup() kopplar ett HTML-fönster till markören som
+      // visas när användaren klickar på den.
+      // openPopup() öppnar popupen direkt utan att behöva klicka.
+      // ═══════════════════════════════════════════════════════════
+      function laggTillPunkt() {
+        var markör = L.marker([59.332, 18.065]);
+
+        markör.bindPopup(
+          "<b>📍 Stockholms stadshus</b><br>" +
+            "Typ: Punkt<br>" +
+            "Koordinater: 59.332°N, 18.065°E<br>" +
+            "Historiskt rådhus vid Riddarfjärden, invigt 1923.<br>" +
+            '<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/0c/Stockholm_stadshus.jpg/200px-Stockholm_stadshus.jpg" ' +
+            'style="width:200px; margin-top:6px; border-radius:4px"/>',
+        );
+
+        laggTillLager(markör);
+        markör.openPopup();
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // TASK 1 — LINJE
+      //
+      // L.polyline() tar en lista med koordinatpar och ritar en
+      // sammanhängande linje mellan dem.
+      // fitBounds() justerar kartans vy så att hela linjen syns,
+      // med extra utrymme (padding) runt om.
+      // ═══════════════════════════════════════════════════════════
+      function laggTillLinje() {
+        var punkter = [
+          [59.325, 18.05],
+          [59.33, 18.065],
+          [59.335, 18.08],
+          [59.34, 18.09],
+        ];
+
+        var linje = L.polyline(punkter, {
+          color: "orange",
+          weight: 5,
+        });
+
+        linje.bindPopup(
+          "<b>📏 Promenadstråk – Gamla Stan</b><br>" +
+            "Typ: Linje<br>" +
+            "Längd: ca 2.8 km<br>" +
+            "Scenisk promenad längs vattnet i centrala Stockholm.<br>" +
+            '<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/2/24/Gamla_Stan_from_Riddarfjarden.jpg/200px-Gamla_Stan_from_Riddarfjarden.jpg" ' +
+            'style="width:200px; margin-top:6px; border-radius:4px"/>',
+        );
+
+        laggTillLager(linje);
+        karta.fitBounds(linje.getBounds(), { padding: [60, 60] });
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // TASK 1 — POLYGON
+      //
+      // L.polygon() tar en lista med hörnpunkter och ritar en
+      // sluten yta. Leaflet stänger automatiskt formen tillbaka
+      // till den första punkten.
+      // fillOpacity styr genomskinligheten på fyllningen (0 = osynlig, 1 = hel).
+      // ═══════════════════════════════════════════════════════════
+      function laggTillPolygon() {
+        var hörn = [
+          [59.34, 18.05],
+          [59.345, 18.08],
+          [59.335, 18.095],
+          [59.325, 18.085],
+          [59.322, 18.055],
+        ];
+
+        var polygon = L.polygon(hörn, {
+          color: "green",
+          fillColor: "green",
+          fillOpacity: 0.25,
+          weight: 3,
+        });
+
+        polygon.bindPopup(
+          "<b>🔷 Djurgårdens parkområde</b><br>" +
+            "Typ: Polygon<br>" +
+            "Area: ca 2.1 km²<br>" +
+            "Kunglig nationalstadspark med museer och natur.<br>" +
+            '<img src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/13/Djurg%C3%A5rdsbron_Stockholm.JPG/200px-Djurg%C3%A5rdsbron_Stockholm.JPG" ' +
+            'style="width:200px; margin-top:6px; border-radius:4px"/>',
+        );
+
+        laggTillLager(polygon);
+        karta.fitBounds(polygon.getBounds(), { padding: [60, 60] });
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // TASK 2 — 5 PLATSER I STOCKHOLM MED SIDEBAR
+      //
+      // platser är en array med objekt där varje objekt representerar
+      // en intressant plats i Stockholm med koordinater och information.
+      // Informationen visas både som markör på kartan och som
+      // klickbart kort i sidebaren.
+      // ═══════════════════════════════════════════════════════════
+      var platser = [
+        {
+          namn: "Vasamuseet",
+          lat: 59.328,
+          lng: 18.0916,
+          typ: "Museum",
+          info: "Världsberömt museum med det 400-åriga krigsskeppet Vasa.",
+          adress: "Galärvarvsvägen 14, Djurgården",
+        },
+        {
+          namn: "Stockholms stadsbibliotek",
+          lat: 59.3429,
+          lng: 18.0583,
+          typ: "Bibliotek",
+          info: "Ikonisk cylinderformad byggnad ritad av Gunnar Asplund, öppnad 1928.",
+          adress: "Sveavägen 73, Vasastan",
+        },
+        {
+          namn: "NK – Nordiska Kompaniet",
+          lat: 59.334,
+          lng: 18.0706,
+          typ: "Butik",
+          info: "Stockholms mest kända varuhus sedan 1915, centralt på Hamngatan.",
+          adress: "Hamngatan 18-20, Norrmalm",
+        },
+        {
+          namn: "Karolinska universitetssjukhuset",
+          lat: 59.349,
+          lng: 18.034,
+          typ: "Sjukhus",
+          info: "Ett av Europas största universitetssjukhus med avancerad specialistvård.",
+          adress: "Solnavägen 1, Solna",
+        },
+        {
+          namn: "Stockholms universitet",
+          lat: 59.365,
+          lng: 18.058,
+          typ: "Universitet",
+          info: "Grundat 1878, ett av Sveriges ledande lärosäten med ca 33 000 studenter.",
+          adress: "Universitetsvägen 10, Frescati",
+        },
+      ];
+
+      /*
+          Separat array för Task 2-markörer så att de inte påverkas
+          av rensa-knappen som bara rensar Task 1-lager.
+        */
+      var task2Lager = [];
+
+      function visaTask2() {
+        var sidebar = document.getElementById("sidebar");
+        var innehall = document.getElementById("sidebar-innehall");
+
+        /*
+            Om sidebaren redan är synlig stänger vi den och tar bort
+            alla Task 2-markörer från kartan för att återställa vyn.
+          */
+        if (sidebar.style.display === "block") {
+          sidebar.style.display = "none";
+          task2Lager.forEach(function (l) {
+            karta.removeLayer(l);
+          });
+          task2Lager = [];
+          return;
+        }
+
+        sidebar.style.display = "block";
+        innehall.innerHTML = "";
+
+        /*
+            Loopar igenom platser-arrayen och skapar för varje plats:
+            1. En markör på kartan med popup
+            2. Ett klickbart kort i sidebaren
+          */
+        platser.forEach(function (plats) {
+          var markör = L.marker([plats.lat, plats.lng]);
+
+          markör.bindPopup(
+            "<b>" +
+              plats.namn +
+              "</b><br>" +
+              "<i>" +
+              plats.typ +
+              "</i><br>" +
+              plats.adress +
+              "<br>" +
+              plats.info,
+          );
+
+          markör.addTo(karta);
+          task2Lager.push(markör);
+
+          /*
+              Skapar ett HTML-element för platsen i sidebaren.
+              addEventListener('click') zoomar kartan till platsen
+              och öppnar popupen när användaren klickar på kortet.
+            */
+          var kort = document.createElement("div");
+          kort.className = "platskort";
+          kort.innerHTML =
+            "<h3>" +
+            plats.namn +
+            "</h3>" +
+            "<p>📍 " +
+            plats.adress +
+            "</p>" +
+            "<p>" +
+            plats.info +
+            "</p>" +
+            '<span class="etikett">' +
+            plats.typ +
+            "</span>";
+
+          kort.addEventListener("click", function () {
+            karta.setView([plats.lat, plats.lng], 16);
+            markör.openPopup();
+          });
+
+          innehall.appendChild(kort);
+        });
+
+        /*
+            Skapar en tillfällig grupp av alla markörer för att
+            kunna beräkna den gemensamma avgränsningsrutan och
+            zooma kartan så att alla 5 platser syns samtidigt.
+          */
+        var grupp = L.featureGroup(task2Lager);
+        karta.fitBounds(grupp.getBounds(), { padding: [40, 40] });
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // TASK 3 — SUPERMARKETS MED GEOJSON OCH 1KM BUFFERTZONER
+      //
+      // Hämtar supermarket.geojson från Flask-servern och visar
+      // varje butik som en cirkelmarkör på kartan.
+      //
+      // Bufferanalys:
+      //   - turf.buffer() skapar en 1km cirkel runt varje butik
+      //   - turf.booleanIntersects() kollar om två cirklar överlappar
+      //   - Gröna markörer/buffers = butiken ligger isolerat (ingen överlapp)
+      //   - Blå markörer/buffers = butiken överlappar minst en annan butik
+      // ═══════════════════════════════════════════════════════════
+      var task3Lager = [];
+      var task3Visas = false;
+
+      function visaTask3() {
+        /*
+            Om Task 3 redan visas tar vi bort alla lager och
+            återställer flaggan task3Visas till false.
+          */
+        if (task3Visas) {
+          task3Lager.forEach(function (l) {
+            karta.removeLayer(l);
+          });
+          task3Lager = [];
+          task3Visas = false;
+          return;
+        }
+
+        /*
+            fetch('/supermarkets') skickar en HTTP GET-förfrågan till
+            Flask-servern som läser supermarket.geojson och returnerar
+            den som JSON. .then() hanterar svaret asynkront när det
+            kommer tillbaka från servern.
+          */
+        fetch("/supermarkets")
+          .then(function (svar) {
+            return svar.json();
+          })
+          .then(function (data) {
+            var features = data.features;
+
+            /*
+                Skapar en 1km buffertzon för varje butik.
+                turf.buffer(feature, radie, {enheter}) returnerar en
+                GeoJSON-polygon som representerar cirkeln.
+                map() skapar en ny array med en buffer per butik.
+              */
+            var buffers = features.map(function (feature) {
+              return turf.buffer(feature, 1, { units: "kilometers" });
+            });
+
+            /*
+                Kontrollerar vilka buffers som överlappar varandra.
+                Vi jämför varje par av buffers (i mot j).
+                Om de överlappar markeras båda indexen som överlappande.
+                new Array(n).fill(false) skapar en array med n st false-värden.
+              */
+            var överlappande = new Array(features.length).fill(false);
+
+            for (var i = 0; i < buffers.length; i++) {
+              for (var j = i + 1; j < buffers.length; j++) {
+                /*
+                    turf.booleanIntersects() returnerar true om de två
+                    polygonerna delar något gemensamt geografiskt område.
+                  */
+                if (turf.booleanIntersects(buffers[i], buffers[j])) {
+                  överlappande[i] = true;
+                  överlappande[j] = true;
+                }
+              }
+            }
+
+            /*
+                Ritar ut varje buffertzon på kartan som en halvtransparent cirkel.
+                Färgen baseras på om bufferten överlappar en annan eller inte.
+                dashArray: '5, 5' skapar en streckad kantlinje.
+              */
+            buffers.forEach(function (buffer, index) {
+              var färg = överlappande[index] ? "blue" : "green";
+
+              var bufferLager = L.geoJSON(buffer, {
+                style: {
+                  color: färg,
+                  fillColor: färg,
+                  fillOpacity: 0.15,
+                  weight: 2,
+                  dashArray: "5, 5",
+                },
+              });
+
+              bufferLager.addTo(karta);
+              task3Lager.push(bufferLager);
+            });
+
+            /*
+                Ritar ut varje supermarket som en cirkelmarkör.
+                GeoJSON lagrar koordinater som [longitud, latitud] (omvänt mot Leaflet),
+                därför vänder vi på dem: koordinater[1] = lat, koordinater[0] = lng.
+              */
+            features.forEach(function (feature, index) {
+              var koordinater = feature.geometry.coordinates;
+              var namn = feature.properties.name || "Okänd butik";
+              var färg = överlappande[index] ? "blue" : "green";
+
+              var markör = L.circleMarker([koordinater[1], koordinater[0]], {
+                radius: 8,
+                color: färg,
+                fillColor: färg,
+                fillOpacity: 0.9,
+                weight: 2,
+              });
+
+              /*
+                  Popupen visar butikens namn och om dess buffert
+                  överlappar en annan butiks buffert eller inte.
+                */
+              var status = överlappande[index]
+                ? "⚠️ Bufferten överlappar en annan butik"
+                : "✅ Bufferten överlappar INTE någon annan butik";
+
+              markör.bindPopup("<b>🛒 " + namn + "</b><br>" + status);
+
+              markör.addTo(karta);
+              task3Lager.push(markör);
+            });
+
+            /*
+                Zoomar kartan så att alla supermarkets och deras
+                buffertzoner syns inom kartans vy.
+              */
+            var grupp = L.featureGroup(task3Lager);
+            karta.fitBounds(grupp.getBounds(), { padding: [40, 40] });
+
+            task3Visas = true;
+          });
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // TASK 4 — BILDÖVERLAGRING PÅ BAKGRUNDSKARTAN
+      //
+      // L.imageOverlay(bildUrl, avgränsning, alternativ) lägger en
+      // bild ovanpå bakgrundskartan inom de angivna koordinaterna.
+      //
+      // Avgränsningen definieras som två koordinatpar:
+      //   [[sydväst-lat, sydväst-lng], [nordost-lat, nordost-lng]]
+      //
+      // Vi använder en historisk karta över Stockholm från 1897
+      // som är tillgänglig via Wikimedia Commons.
+      // opacity: 0.6 gör bilden halvtransparent så att
+      // den moderna bakgrundskartan syns igenom.
+      // ═══════════════════════════════════════════════════════════
+
+      // Variabel för att hålla koll på bildlagret
+      var task4Lager = null;
+
+      function visaTask4() {
+        /*
+        Om bildlagret redan visas tar vi bort det från kartan
+        och återställer variabeln till null.
+      */
+        if (task4Lager) {
+          karta.removeLayer(task4Lager);
+          task4Lager = null;
+          return;
+        }
+
+        /*
+        Definierar var på kartan bilden ska placeras.
+        Koordinaterna motsvarar ungefär centrala Stockholm.
+        [[sydlig latitud, västlig longitud], [nordlig latitud, östlig longitud]]
+      */
+        var avgränsning = [
+          [59.3, 17.98], // Sydvästra hörnet
+          [59.38, 18.16], // Nordöstra hörnet
+        ];
+
+        /*
+        Bilden är en historisk karta över Stockholm från 1897
+        hämtad från Wikimedia Commons (public domain).
+        opacity: 0.6 = 60% ogenomskinlig så bakgrundskartan
+        syns igenom för jämförelse med den historiska kartan.
+        interactive: true gör att man kan klicka på bilden.
+      */
+        task4Lager = L.imageOverlay("/static/stockholm.jpg", avgränsning, {
+          opacity: 0.6,
+          interactive: true,
+        });
+
+        /*
+        Popup som visas när användaren klickar på bilden,
+        med information om vad överlagringen föreställer.
+      */
+        task4Lager.bindPopup(
+          "<b>🗺 Historisk karta över Stockholm (1897)</b><br>" +
+            "En kartografisk bild från sekelskiftet som visar<br>" +
+            "Stockholm innan många moderna stadsdelar byggdes.<br>" +
+            '<i style="font-size:11px">Källa: Wikimedia Commons</i>',
+        );
+
+        var kantlinje = L.rectangle(avgränsning, {
+          color: "#333",
+          weight: 3,
+          dashArray: "6, 4",
+          fill: false,
+        });
+
+        task4Lager = L.layerGroup([task4Lager, kantlinje]);
+        task4Lager.addTo(karta);
+
+        // Zoomar kartan så att hela bilden syns
+        karta.fitBounds(avgränsning, { padding: [40, 40] });
+      }
+    </script>
+  </body>
+</html>
