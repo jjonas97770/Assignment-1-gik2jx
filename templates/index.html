@@ -209,6 +209,24 @@
         border-color: darkorange;
         color: darkorange;
       }
+
+      /*
+  Knappen för väderfunktionen får en ljusblå färg för att
+  representera himmel och väder.
+*/
+      #visaVäder {
+        border-color: steelblue;
+        color: steelblue;
+      }
+
+      /*
+  Knappen för k-means klustring får en mörkgrön färg
+  för att representera skolor och utbildning.
+*/
+      #visaKmeans {
+        border-color: darkgreen;
+        color: darkgreen;
+      }
     </style>
   </head>
   <body>
@@ -229,6 +247,7 @@
       <button id="rensa" onclick="rensaKarta()">🗑 Rensa</button>
       <button id="visaFuel" onclick="visaTask5()">⛽ Bränslestationer</button>
       <button id="visaDonut" onclick="visaTask5_1()">🍩 Donut-kluster</button>
+      <button id="visaKmeans" onclick="visaTask7()">🏫 K-means</button>
 
       <!--
       Task 2 – visar 5 utvalda platser i Stockholm som markörer
@@ -252,6 +271,13 @@
   över Stockholm. Klick igen tar bort överlagringen.
 -->
       <button id="visaBild" onclick="visaTask4()">🖼 Bildöverlagring</button>
+
+      <!--
+  Knapp som hämtar aktuell väderdata och femtonsdygns-prognos
+  för fem svenska städer och visar informationen både som
+  markörer på kartan och som detaljkort i sidebaren.
+-->
+      <button id="visaVäder" onclick="visaTask6()">🌤 Väder</button>
     </div>
 
     <!--
@@ -293,11 +319,11 @@
       var karta = L.map("map").setView([59.332, 18.065], 13);
 
       /*
-          Bakgrundskarta från OpenStreetMap.
-          {s} = subdomän för lastbalansering
-          {z} = zoomnivå
-          {x} och {y} = rutkoordinater i kartans rutnät
-        */
+                  Bakgrundskarta från OpenStreetMap.
+                  {s} = subdomän för lastbalansering
+                  {z} = zoomnivå
+                  {x} och {y} = rutkoordinater i kartans rutnät
+                */
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "© OpenStreetMap",
       }).addTo(karta);
@@ -313,23 +339,83 @@
       var aktivaLager = [];
 
       /*
-          Lägger till ett lager på kartan och sparar en referens
-          i aktivaLager-arrayen så att det kan tas bort senare.
-        */
+                  Lägger till ett lager på kartan och sparar en referens
+                  i aktivaLager-arrayen så att det kan tas bort senare.
+                */
       function laggTillLager(lager) {
         lager.addTo(karta);
         aktivaLager.push(lager);
       }
 
       /*
-          Tar bort alla lager i aktivaLager från kartan
-          och tömmer arrayen för att frigöra minne.
-        */
+                  Tar bort alla lager i aktivaLager från kartan
+                  och tömmer arrayen för att frigöra minne.
+                */
       function rensaKarta() {
+        // Rensar Task 1-lager (punkt, linje, polygon)
         aktivaLager.forEach(function (l) {
           karta.removeLayer(l);
         });
         aktivaLager.length = 0;
+
+        if (punktLager) {
+          karta.removeLayer(punktLager);
+          punktLager = null;
+        }
+        if (linjeLager) {
+          karta.removeLayer(linjeLager);
+          linjeLager = null;
+        }
+        if (polygonLager) {
+          karta.removeLayer(polygonLager);
+          polygonLager = null;
+        }
+
+        // Rensar Task 2-lager och stänger sidebaren
+        task2Lager.forEach(function (l) {
+          karta.removeLayer(l);
+        });
+        task2Lager = [];
+        document.getElementById("sidebar").style.display = "none";
+
+        // Rensar supermarket-lager och buffertzoner
+        task3Lager.forEach(function (l) {
+          karta.removeLayer(l);
+        });
+        task3Lager = [];
+        task3Visas = false;
+
+        // Rensar bildöverlagringen och kantlinjen
+        if (task4Lager) {
+          karta.removeLayer(task4Lager);
+          task4Lager = null;
+        }
+
+        // Rensar bränslestationer med vanligt kluster
+        if (task5Lager) {
+          karta.removeLayer(task5Lager);
+          task5Lager = null;
+        }
+
+        // Rensar bränslestationer med donut-kluster
+        if (task5_1Lager) {
+          karta.removeLayer(task5_1Lager);
+          task5_1Lager = null;
+        }
+
+        // Rensar vädermarkörer
+        task6Lager.forEach(function (l) {
+          karta.removeLayer(l);
+        });
+        task6Lager = [];
+        task6Visas = false;
+
+        // Rensar k-means klustermarkörer och centroids
+        task7Lager.forEach(function (l) {
+          karta.removeLayer(l);
+        });
+        task7Lager = [];
+        task7Visas = false;
       }
 
       // ═══════════════════════════════════════════════════════════
@@ -340,7 +426,17 @@
       // visas när användaren klickar på den.
       // openPopup() öppnar popupen direkt utan att behöva klicka.
       // ═══════════════════════════════════════════════════════════
+
+      var punktLager = null;
+      var linjeLager = null;
+      var polygonLager = null;
+
       function laggTillPunkt() {
+        if (punktLager) {
+          karta.removeLayer(punktLager);
+          punktLager = null;
+          return;
+        }
         var markör = L.marker([59.332, 18.065]);
 
         markör.bindPopup(
@@ -352,8 +448,8 @@
             'style="width:200px; margin-top:6px; border-radius:4px"/>',
         );
 
-        laggTillLager(markör);
-        markör.openPopup();
+        punktLager = markör;
+        markör.addTo(karta);
       }
 
       // ═══════════════════════════════════════════════════════════
@@ -365,6 +461,11 @@
       // med extra utrymme (padding) runt om.
       // ═══════════════════════════════════════════════════════════
       function laggTillLinje() {
+        if (linjeLager) {
+          karta.removeLayer(linjeLager);
+          linjeLager = null;
+          return;
+        }
         var punkter = [
           [59.325, 18.05],
           [59.33, 18.065],
@@ -386,7 +487,8 @@
             'style="width:200px; margin-top:6px; border-radius:4px"/>',
         );
 
-        laggTillLager(linje);
+        linjeLager = linje;
+        linje.addTo(karta);
         karta.fitBounds(linje.getBounds(), { padding: [60, 60] });
       }
 
@@ -399,6 +501,11 @@
       // fillOpacity styr genomskinligheten på fyllningen (0 = osynlig, 1 = hel).
       // ═══════════════════════════════════════════════════════════
       function laggTillPolygon() {
+        if (polygonLager) {
+          karta.removeLayer(polygonLager);
+          polygonLager = null;
+          return;
+        }
         var hörn = [
           [59.34, 18.05],
           [59.345, 18.08],
@@ -423,7 +530,8 @@
             'style="width:200px; margin-top:6px; border-radius:4px"/>',
         );
 
-        laggTillLager(polygon);
+        polygonLager = polygon;
+        polygon.addTo(karta);
         karta.fitBounds(polygon.getBounds(), { padding: [60, 60] });
       }
 
@@ -479,9 +587,9 @@
       ];
 
       /*
-          Separat array för Task 2-markörer så att de inte påverkas
-          av rensa-knappen som bara rensar Task 1-lager.
-        */
+                  Separat array för Task 2-markörer så att de inte påverkas
+                  av rensa-knappen som bara rensar Task 1-lager.
+                */
       var task2Lager = [];
 
       function visaTask2() {
@@ -489,9 +597,9 @@
         var innehall = document.getElementById("sidebar-innehall");
 
         /*
-            Om sidebaren redan är synlig stänger vi den och tar bort
-            alla Task 2-markörer från kartan för att återställa vyn.
-          */
+                    Om sidebaren redan är synlig stänger vi den och tar bort
+                    alla Task 2-markörer från kartan för att återställa vyn.
+                  */
         if (sidebar.style.display === "block") {
           sidebar.style.display = "none";
           task2Lager.forEach(function (l) {
@@ -505,10 +613,10 @@
         innehall.innerHTML = "";
 
         /*
-            Loopar igenom platser-arrayen och skapar för varje plats:
-            1. En markör på kartan med popup
-            2. Ett klickbart kort i sidebaren
-          */
+                    Loopar igenom platser-arrayen och skapar för varje plats:
+                    1. En markör på kartan med popup
+                    2. Ett klickbart kort i sidebaren
+                  */
         platser.forEach(function (plats) {
           var markör = L.marker([plats.lat, plats.lng]);
 
@@ -528,10 +636,10 @@
           task2Lager.push(markör);
 
           /*
-              Skapar ett HTML-element för platsen i sidebaren.
-              addEventListener('click') zoomar kartan till platsen
-              och öppnar popupen när användaren klickar på kortet.
-            */
+                      Skapar ett HTML-element för platsen i sidebaren.
+                      addEventListener('click') zoomar kartan till platsen
+                      och öppnar popupen när användaren klickar på kortet.
+                    */
           var kort = document.createElement("div");
           kort.className = "platskort";
           kort.innerHTML =
@@ -557,10 +665,10 @@
         });
 
         /*
-            Skapar en tillfällig grupp av alla markörer för att
-            kunna beräkna den gemensamma avgränsningsrutan och
-            zooma kartan så att alla 5 platser syns samtidigt.
-          */
+                    Skapar en tillfällig grupp av alla markörer för att
+                    kunna beräkna den gemensamma avgränsningsrutan och
+                    zooma kartan så att alla 5 platser syns samtidigt.
+                  */
         var grupp = L.featureGroup(task2Lager);
         karta.fitBounds(grupp.getBounds(), { padding: [40, 40] });
       }
@@ -582,9 +690,9 @@
 
       function visaTask3() {
         /*
-            Om Task 3 redan visas tar vi bort alla lager och
-            återställer flaggan task3Visas till false.
-          */
+                    Om Task 3 redan visas tar vi bort alla lager och
+                    återställer flaggan task3Visas till false.
+                  */
         if (task3Visas) {
           task3Lager.forEach(function (l) {
             karta.removeLayer(l);
@@ -595,11 +703,11 @@
         }
 
         /*
-            fetch('/supermarkets') skickar en HTTP GET-förfrågan till
-            Flask-servern som läser supermarket.geojson och returnerar
-            den som JSON. .then() hanterar svaret asynkront när det
-            kommer tillbaka från servern.
-          */
+                    fetch('/supermarkets') skickar en HTTP GET-förfrågan till
+                    Flask-servern som läser supermarket.geojson och returnerar
+                    den som JSON. .then() hanterar svaret asynkront när det
+                    kommer tillbaka från servern.
+                  */
         fetch("/supermarkets")
           .then(function (svar) {
             return svar.json();
@@ -608,29 +716,29 @@
             var features = data.features;
 
             /*
-                Skapar en 1km buffertzon för varje butik.
-                turf.buffer(feature, radie, {enheter}) returnerar en
-                GeoJSON-polygon som representerar cirkeln.
-                map() skapar en ny array med en buffer per butik.
-              */
+                        Skapar en 1km buffertzon för varje butik.
+                        turf.buffer(feature, radie, {enheter}) returnerar en
+                        GeoJSON-polygon som representerar cirkeln.
+                        map() skapar en ny array med en buffer per butik.
+                      */
             var buffers = features.map(function (feature) {
               return turf.buffer(feature, 1, { units: "kilometers" });
             });
 
             /*
-                Kontrollerar vilka buffers som överlappar varandra.
-                Vi jämför varje par av buffers (i mot j).
-                Om de överlappar markeras båda indexen som överlappande.
-                new Array(n).fill(false) skapar en array med n st false-värden.
-              */
+                        Kontrollerar vilka buffers som överlappar varandra.
+                        Vi jämför varje par av buffers (i mot j).
+                        Om de överlappar markeras båda indexen som överlappande.
+                        new Array(n).fill(false) skapar en array med n st false-värden.
+                      */
             var överlappande = new Array(features.length).fill(false);
 
             for (var i = 0; i < buffers.length; i++) {
               for (var j = i + 1; j < buffers.length; j++) {
                 /*
-                    turf.booleanIntersects() returnerar true om de två
-                    polygonerna delar något gemensamt geografiskt område.
-                  */
+                            turf.booleanIntersects() returnerar true om de två
+                            polygonerna delar något gemensamt geografiskt område.
+                          */
                 if (turf.booleanIntersects(buffers[i], buffers[j])) {
                   överlappande[i] = true;
                   överlappande[j] = true;
@@ -639,10 +747,10 @@
             }
 
             /*
-                Ritar ut varje buffertzon på kartan som en halvtransparent cirkel.
-                Färgen baseras på om bufferten överlappar en annan eller inte.
-                dashArray: '5, 5' skapar en streckad kantlinje.
-              */
+                        Ritar ut varje buffertzon på kartan som en halvtransparent cirkel.
+                        Färgen baseras på om bufferten överlappar en annan eller inte.
+                        dashArray: '5, 5' skapar en streckad kantlinje.
+                      */
             buffers.forEach(function (buffer, index) {
               var färg = överlappande[index] ? "blue" : "green";
 
@@ -661,10 +769,10 @@
             });
 
             /*
-                Ritar ut varje supermarket som en cirkelmarkör.
-                GeoJSON lagrar koordinater som [longitud, latitud] (omvänt mot Leaflet),
-                därför vänder vi på dem: koordinater[1] = lat, koordinater[0] = lng.
-              */
+                        Ritar ut varje supermarket som en cirkelmarkör.
+                        GeoJSON lagrar koordinater som [longitud, latitud] (omvänt mot Leaflet),
+                        därför vänder vi på dem: koordinater[1] = lat, koordinater[0] = lng.
+                      */
             features.forEach(function (feature, index) {
               var koordinater = feature.geometry.coordinates;
               var namn = feature.properties.name || "Okänd butik";
@@ -679,9 +787,9 @@
               });
 
               /*
-                  Popupen visar butikens namn och om dess buffert
-                  överlappar en annan butiks buffert eller inte.
-                */
+                          Popupen visar butikens namn och om dess buffert
+                          överlappar en annan butiks buffert eller inte.
+                        */
               var status = överlappande[index]
                 ? "⚠️ Bufferten överlappar en annan butik"
                 : "✅ Bufferten överlappar INTE någon annan butik";
@@ -693,9 +801,9 @@
             });
 
             /*
-                Zoomar kartan så att alla supermarkets och deras
-                buffertzoner syns inom kartans vy.
-              */
+                        Zoomar kartan så att alla supermarkets och deras
+                        buffertzoner syns inom kartans vy.
+                      */
             var grupp = L.featureGroup(task3Lager);
             karta.fitBounds(grupp.getBounds(), { padding: [40, 40] });
 
@@ -723,9 +831,9 @@
 
       function visaTask4() {
         /*
-        Om bildlagret redan visas tar vi bort det från kartan
-        och återställer variabeln till null.
-      */
+                Om bildlagret redan visas tar vi bort det från kartan
+                och återställer variabeln till null.
+              */
         if (task4Lager) {
           karta.removeLayer(task4Lager);
           task4Lager = null;
@@ -733,31 +841,31 @@
         }
 
         /*
-        Definierar var på kartan bilden ska placeras.
-        Koordinaterna motsvarar ungefär centrala Stockholm.
-        [[sydlig latitud, västlig longitud], [nordlig latitud, östlig longitud]]
-      */
+                Definierar var på kartan bilden ska placeras.
+                Koordinaterna motsvarar ungefär centrala Stockholm.
+                [[sydlig latitud, västlig longitud], [nordlig latitud, östlig longitud]]
+              */
         var avgränsning = [
           [59.3, 17.98], // Sydvästra hörnet
           [59.38, 18.16], // Nordöstra hörnet
         ];
 
         /*
-        Bilden är en historisk karta över Stockholm från 1897
-        hämtad från Wikimedia Commons (public domain).
-        opacity: 0.6 = 60% ogenomskinlig så bakgrundskartan
-        syns igenom för jämförelse med den historiska kartan.
-        interactive: true gör att man kan klicka på bilden.
-      */
+                Bilden är en historisk karta över Stockholm från 1897
+                hämtad från Wikimedia Commons (public domain).
+                opacity: 0.6 = 60% ogenomskinlig så bakgrundskartan
+                syns igenom för jämförelse med den historiska kartan.
+                interactive: true gör att man kan klicka på bilden.
+              */
         task4Lager = L.imageOverlay("/static/stockholm.jpg", avgränsning, {
           opacity: 0.6,
           interactive: true,
         });
 
         /*
-        Popup som visas när användaren klickar på bilden,
-        med information om vad överlagringen föreställer.
-      */
+                Popup som visas när användaren klickar på bilden,
+                med information om vad överlagringen föreställer.
+              */
         task4Lager.bindPopup(
           "<b>🗺 Historisk karta över Stockholm (1897)</b><br>" +
             "En kartografisk bild från sekelskiftet som visar<br>" +
@@ -840,9 +948,9 @@
 
       function visaTask5_1() {
         /*
-    Om Task 5.1 redan visas tar vi bort klusterlagret
-    och återställer variabeln till null.
-  */
+            Om Task 5.1 redan visas tar vi bort klusterlagret
+            och återställer variabeln till null.
+          */
         if (task5_1Lager) {
           karta.removeLayer(task5_1Lager);
           task5_1Lager = null;
@@ -850,17 +958,17 @@
         }
 
         /*
-    Skapar ett MarkerCluster-lager med en anpassad ikonfunktion.
-    iconCreateFunction anropas automatiskt när kluster ska ritas.
-    Parametern 'kluster' innehåller information om alla markörer
-    som ingår i klustret.
-  */
+            Skapar ett MarkerCluster-lager med en anpassad ikonfunktion.
+            iconCreateFunction anropas automatiskt när kluster ska ritas.
+            Parametern 'kluster' innehåller information om alla markörer
+            som ingår i klustret.
+          */
         var donutKluster = L.markerClusterGroup({
           iconCreateFunction: function (kluster) {
             /*
-        Hämtar alla markörer i klustret och räknar hur många
-        som tillhör varje bränslebolag.
-      */
+                Hämtar alla markörer i klustret och räknar hur många
+                som tillhör varje bränslebolag.
+              */
             var markörer = kluster.getAllChildMarkers();
             var bolagsRäkning = {};
 
@@ -875,10 +983,10 @@
             var inreRadie = radie * 0.5; // Hålet i mitten av munken
 
             /*
-        Bygger SVG-sektorer för varje bränslebolag.
-        Varje sektor beräknas med trigonometri utifrån
-        hur stor andel av klustret bolaget utgör.
-      */
+                Bygger SVG-sektorer för varje bränslebolag.
+                Varje sektor beräknas med trigonometri utifrån
+                hur stor andel av klustret bolaget utgör.
+              */
             var sektorer = "";
             var startVinkel = -Math.PI / 2; // Börjar kl 12
 
@@ -888,9 +996,9 @@
               var färg = bolagsFärger[bolag] || "#888888";
 
               /*
-          Beräknar punkterna för sektorns yttre och inre båge.
-          largeArcFlag = 1 om sektorn är större än 180 grader.
-        */
+                  Beräknar punkterna för sektorns yttre och inre båge.
+                  largeArcFlag = 1 om sektorn är större än 180 grader.
+                */
               var x1 = radie + radie * Math.cos(startVinkel);
               var y1 = radie + radie * Math.sin(startVinkel);
               var x2 = radie + radie * Math.cos(slutVinkel);
@@ -942,9 +1050,9 @@
             });
 
             /*
-        Sätter ihop hela SVG-ikonen med sektorer och
-        ett antal i mitten av munken.
-      */
+                Sätter ihop hela SVG-ikonen med sektorer och
+                ett antal i mitten av munken.
+              */
             var svg =
               '<svg width="' +
               storlek +
@@ -994,9 +1102,9 @@
                 "Okänt";
 
               /*
-          Sparar bolaget som ett alternativ på markören så att
-          iconCreateFunction kan komma åt det via m.options.bolag.
-        */
+                  Sparar bolaget som ett alternativ på markören så att
+                  iconCreateFunction kan komma åt det via m.options.bolag.
+                */
               var markör = L.marker([koordinater[1], koordinater[0]], {
                 bolag: bolag,
               });
@@ -1008,6 +1116,446 @@
             task5_1Lager = donutKluster;
             karta.addLayer(task5_1Lager);
             karta.fitBounds(task5_1Lager.getBounds(), { padding: [40, 40] });
+          });
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // VÄDERDATA FÖR 5 SVENSKA STÄDER
+      //
+      // Hämtar aktuell väderdata och 5-dygnsprognos från
+      // OpenWeatherMap API för fem utvalda svenska städer.
+      //
+      // För varje stad görs två API-anrop:
+      //   1. /weather  – aktuellt väder (temperatur, vind, luftfuktighet)
+      //   2. /forecast – prognos för kommande 5 dagar
+      //
+      // Informationen visas både som klickbara markörer på kartan
+      // och som detaljerade kort i sidebaren.
+      //
+      // API-nyckeln krävs för att autentisera anropen mot OpenWeatherMap.
+      // ═══════════════════════════════════════════════════════════
+
+      /*
+          De fem städer vi hämtar väderdata för, med namn och koordinater.
+          Koordinaterna används för att placera markörerna på rätt plats.
+        */
+      var väderStäder = [
+        { namn: "Stockholm", lat: 59.332, lng: 18.065 },
+        { namn: "Göteborg", lat: 57.707, lng: 11.967 },
+        { namn: "Malmö", lat: 55.605, lng: 13.0 },
+        { namn: "Uppsala", lat: 59.858, lng: 17.645 },
+        { namn: "Linköping", lat: 58.411, lng: 15.622 },
+      ];
+
+      /*
+          Din personliga API-nyckel från OpenWeatherMap.
+          Krävs för att göra anrop mot deras API.
+        */
+      var apiNyckel = "bcccb2c9e07fad2de118bea142ac5c80";
+
+      var task6Lager = [];
+      var task6Visas = false;
+
+      function visaTask6() {
+        /*
+            Om vädret redan visas tar vi bort alla markörer
+            och stänger sidebaren.
+          */
+        if (task6Visas) {
+          task6Lager.forEach(function (l) {
+            karta.removeLayer(l);
+          });
+          task6Lager = [];
+          task6Visas = false;
+          document.getElementById("sidebar").style.display = "none";
+          return;
+        }
+
+        var sidebar = document.getElementById("sidebar");
+        var innehall = document.getElementById("sidebar-innehall");
+        document.getElementById("sidebar-title") &&
+          (document.getElementById("sidebar-title").textContent =
+            "🌤 Väder – 5 städer");
+        sidebar.style.display = "block";
+        innehall.innerHTML = "<p>Hämtar väderdata...</p>";
+
+        var löften = väderStäder.map(function (stad) {
+          /*
+              Bygger URL:erna för aktuellt väder och prognos.
+              units=metric ger temperaturen i Celsius.
+              lang=sv ger väderbeskrivningar på svenska.
+            */
+          var aktuelltUrl =
+            "https://api.openweathermap.org/data/2.5/weather?q=" +
+            stad.namn +
+            ",SE&appid=" +
+            apiNyckel +
+            "&units=metric&lang=sv";
+          var prognosUrl =
+            "https://api.openweathermap.org/data/2.5/forecast?q=" +
+            stad.namn +
+            ",SE&appid=" +
+            apiNyckel +
+            "&units=metric&lang=sv&cnt=5";
+
+          /*
+              Hämtar aktuellt väder och prognos parallellt med Promise.all().
+              Om något anrop misslyckas fångas felet och null returneras.
+            */
+          return Promise.all([
+            fetch(aktuelltUrl).then(function (r) {
+              return r.json();
+            }),
+            fetch(prognosUrl).then(function (r) {
+              return r.json();
+            }),
+          ])
+            .then(function (resultat) {
+              return {
+                stad: stad,
+                aktuellt: resultat[0],
+                prognos: resultat[1],
+              };
+            })
+            .catch(function () {
+              return { stad: stad, aktuellt: null, prognos: null };
+            });
+        });
+
+        /*
+            Väntar på att alla städers väderdata har hämtats
+            innan vi ritar ut markörer och fyller sidebaren.
+          */
+        Promise.all(löften).then(function (resultat) {
+          innehall.innerHTML = "";
+
+          resultat.forEach(function (r) {
+            if (!r.aktuellt || r.aktuellt.cod !== 200) return;
+
+            var temp = Math.round(r.aktuellt.main.temp);
+            var känns = Math.round(r.aktuellt.main.feels_like);
+            var fukt = r.aktuellt.main.humidity;
+            var vind = Math.round(r.aktuellt.wind.speed);
+            var beskriv = r.aktuellt.weather[0].description;
+            var ikon = r.aktuellt.weather[0].icon;
+            var ikonUrl = "https://openweathermap.org/img/wn/" + ikon + ".png";
+
+            /*
+                Skapar en markör med väderikonen som visas direkt på kartan.
+                L.divIcon används för att visa en anpassad HTML-ikon
+                med stadens namn och temperatur.
+              */
+            var kartIkon = L.divIcon({
+              html:
+                '<div style="background:white;border:2px solid steelblue;border-radius:8px;' +
+                "padding:4px 8px;font-size:12px;font-weight:bold;white-space:nowrap;" +
+                'box-shadow:0 2px 6px rgba(0,0,0,0.3)">' +
+                '<img src="' +
+                ikonUrl +
+                '" style="width:20px;vertical-align:middle"/>' +
+                r.stad.namn +
+                " " +
+                temp +
+                "°C</div>",
+              className: "",
+              iconAnchor: [60, 20],
+            });
+
+            var markör = L.marker([r.stad.lat, r.stad.lng], {
+              icon: kartIkon,
+            });
+
+            /*
+                Prognosrader för de kommande 5 mätpunkterna från API:et.
+                Varje mätpunkt är 3 timmar framåt i tiden.
+              */
+            var prognosHtml = "";
+            if (r.prognos && r.prognos.list) {
+              r.prognos.list.forEach(function (p) {
+                var tid = p.dt_txt.slice(0, 16);
+                var temp = Math.round(p.main.temp);
+                var desc = p.weather[0].description;
+                prognosHtml +=
+                  '<div style="font-size:11px;padding:3px 0;border-bottom:1px solid #eee">' +
+                  "<b>" +
+                  tid +
+                  "</b> – " +
+                  temp +
+                  "°C, " +
+                  desc +
+                  "</div>";
+              });
+            }
+
+            markör.bindPopup(
+              "<b>🌤 " +
+                r.stad.namn +
+                "</b><br>" +
+                '<img src="' +
+                ikonUrl +
+                '" style="vertical-align:middle"/>' +
+                "<b>" +
+                temp +
+                "°C</b> – " +
+                beskriv +
+                "<br>" +
+                "🌡 Känns som: " +
+                känns +
+                "°C<br>" +
+                "💧 Luftfuktighet: " +
+                fukt +
+                "%<br>" +
+                "💨 Vind: " +
+                vind +
+                " m/s",
+            );
+
+            markör.addTo(karta);
+            task6Lager.push(markör);
+
+            /*
+                Skapar ett väderkort i sidebaren med aktuell information
+                och prognos. Klick på kortet zoomar kartan till staden.
+              */
+            var kort = document.createElement("div");
+            kort.className = "platskort";
+            kort.innerHTML =
+              '<h3><img src="' +
+              ikonUrl +
+              '" style="width:24px;vertical-align:middle"/>' +
+              r.stad.namn +
+              "</h3>" +
+              "<p>🌡 Temperatur: <b>" +
+              temp +
+              "°C</b></p>" +
+              "<p>🌡 Känns som: " +
+              känns +
+              "°C</p>" +
+              "<p>☁️ " +
+              beskriv +
+              "</p>" +
+              "<p>💧 Luftfuktighet: " +
+              fukt +
+              "%</p>" +
+              "<p>💨 Vind: " +
+              vind +
+              " m/s</p>" +
+              '<div style="margin-top:8px;font-weight:bold;font-size:12px">Prognos:</div>' +
+              prognosHtml;
+
+            kort.addEventListener("click", function () {
+              karta.setView([r.stad.lat, r.stad.lng], 10);
+              markör.openPopup();
+            });
+
+            innehall.appendChild(kort);
+          });
+
+          /*
+              Zoomar kartan för att visa alla fem städer samtidigt.
+            */
+          if (task6Lager.length > 0) {
+            var grupp = L.featureGroup(task6Lager);
+            karta.fitBounds(grupp.getBounds(), { padding: [80, 80] });
+          }
+
+          task6Visas = true;
+        });
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // K-MEANS KLUSTRING AV SKOLPLACERINGAR
+      //
+      // Hämtar skoldata från servern och skickar koordinaterna
+      // till Flask-servern som utför k-means klustring i Python.
+      //
+      // Resultatet visas som färgkodade markörer på kartan där
+      // varje färg representerar ett geografiskt kluster.
+      // Klustrets centroid (mittpunkt) markeras med en stjärna.
+      //
+      // Antal kluster (k) kan justeras med knapparna.
+      // ═══════════════════════════════════════════════════════════
+
+      /*
+          Färger för de olika klustren.
+          Varje kluster får en unik färg så de är lätta att skilja åt.
+        */
+      var klusterFärger = [
+        "#e74c3c",
+        "#3498db",
+        "#2ecc71",
+        "#f39c12",
+        "#9b59b6",
+        "#1abc9c",
+        "#e67e22",
+        "#e91e63",
+      ];
+
+      var task7Lager = [];
+      var task7Visas = false;
+
+      function visaTask7(k) {
+        /*
+            Standardvärde för k är 4 kluster om inget annat anges.
+          */
+        k = k || 4;
+
+        /*
+            Om k-means redan visas och användaren klickar på knappen igen
+            tas alla klustermarkörer och centroids bort från kartan.
+            Sidebaren stängs också eftersom den visade klusterinformation.
+          */
+        if (task7Visas) {
+          task7Lager.forEach(function (l) {
+            karta.removeLayer(l);
+          });
+          task7Lager = [];
+          task7Visas = false;
+          document.getElementById("sidebar").style.display = "none";
+          return;
+        }
+
+        /*
+            Hämtar skoldata från Flask-servern som en lista
+            med objekt innehållande namn, lat och lng.
+          */
+        fetch("/schools")
+          .then(function (svar) {
+            return svar.json();
+          })
+          .then(function (skolor) {
+            var punkter = skolor.map(function (s) {
+              return { lat: s.lat, lng: s.lng };
+            });
+
+            /*
+                Skickar koordinaterna till Flask-serverns /kmeans-route
+                som utför k-means algoritmen i Python och returnerar
+                vilket kluster varje skola tillhör.
+              */
+            return fetch("/kmeans", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ punkter: punkter, k: k }),
+            })
+              .then(function (svar) {
+                return svar.json();
+              })
+              .then(function (resultat) {
+                var sidebar = document.getElementById("sidebar");
+                var innehall = document.getElementById("sidebar-innehall");
+                sidebar.style.display = "block";
+                innehall.innerHTML =
+                  '<h3 style="margin-bottom:10px">K-means (k=' + k + ")</h3>";
+
+                /*
+                  Skapar knappar för att byta antal kluster utan att
+                  behöva ladda om sidan.
+                */
+                var knappHtml =
+                  '<div style="display:flex;gap:6px;margin-bottom:12px">';
+                [3, 4, 5, 6].forEach(function (val) {
+                  knappHtml +=
+                    '<button onclick="visaTask7(' +
+                    val +
+                    ')" ' +
+                    'style="padding:4px 10px;background:' +
+                    (val === k ? "#333" : "white") +
+                    ";" +
+                    "color:" +
+                    (val === k ? "white" : "#333") +
+                    ";border:1px solid #333;" +
+                    'border-radius:4px;cursor:pointer">k=' +
+                    val +
+                    "</button>";
+                });
+                knappHtml += "</div>";
+                innehall.innerHTML += knappHtml;
+
+                /*
+                  Ritar ut varje skola som en färgad cirkelmarkör
+                  baserat på vilket kluster den tillhör.
+                */
+                skolor.forEach(function (skola, index) {
+                  var kluster = resultat.etiketter[index];
+                  var färg = klusterFärger[kluster % klusterFärger.length];
+
+                  var markör = L.circleMarker([skola.lat, skola.lng], {
+                    radius: 8,
+                    color: färg,
+                    fillColor: färg,
+                    fillOpacity: 0.9,
+                    weight: 2,
+                  });
+
+                  markör.bindPopup(
+                    "<b>🏫 " +
+                      skola.name +
+                      "</b><br>" +
+                      "Kluster: " +
+                      (kluster + 1),
+                  );
+
+                  markör.addTo(karta);
+                  task7Lager.push(markör);
+                });
+
+                /*
+                  Ritar ut centroiden för varje kluster som en
+                  större markör med klustrets nummer i mitten.
+                */
+                resultat.centroids.forEach(function (centroid, index) {
+                  var färg = klusterFärger[index % klusterFärger.length];
+
+                  var centroidIkon = L.divIcon({
+                    html:
+                      '<div style="background:' +
+                      färg +
+                      ";color:white;width:28px;height:28px;" +
+                      "border-radius:50%;display:flex;align-items:center;justify-content:center;" +
+                      "font-weight:bold;font-size:13px;border:3px solid white;" +
+                      'box-shadow:0 2px 6px rgba(0,0,0,0.4)">' +
+                      (index + 1) +
+                      "</div>",
+                    className: "",
+                    iconSize: [28, 28],
+                    iconAnchor: [14, 14],
+                  });
+
+                  var centroidMarkör = L.marker(centroid, {
+                    icon: centroidIkon,
+                  });
+                  centroidMarkör.bindPopup(
+                    "<b>Centroid " + (index + 1) + "</b>",
+                  );
+                  centroidMarkör.addTo(karta);
+                  task7Lager.push(centroidMarkör);
+
+                  /*
+                    Lägger till ett kort i sidebaren för varje kluster
+                    med information om centroidens position.
+                  */
+                  var kort = document.createElement("div");
+                  kort.className = "platskort";
+                  kort.style.borderLeft = "4px solid " + färg;
+                  kort.innerHTML =
+                    '<h3 style="color:' +
+                    färg +
+                    '">Kluster ' +
+                    (index + 1) +
+                    "</h3>" +
+                    "<p>📍 Centroid: " +
+                    centroid[0].toFixed(3) +
+                    "°N, " +
+                    centroid[1].toFixed(3) +
+                    "°E</p>";
+                  innehall.appendChild(kort);
+                });
+
+                var grupp = L.featureGroup(task7Lager);
+                karta.fitBounds(grupp.getBounds(), { padding: [40, 40] });
+                task7Visas = true;
+              });
           });
       }
     </script>
