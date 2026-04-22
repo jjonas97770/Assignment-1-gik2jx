@@ -4,23 +4,31 @@ import os
 
 app = Flask(__name__)
 
-# ── Startsida ──────────────────────────────────────────────
+# Startsida – laddar index.html från templates-mappen
 
 
 @app.route('/')
 def home():
     return render_template('index.html')
 
-# ── Skickar supermarket.geojson till webbläsaren ───────────
-# Webbläsaren hämtar denna fil via fetch('/supermarkets')
+# Skickar supermarket.geojson till webbläsaren när
+# JavaScript anropar fetch('/supermarkets')
 
 
 @app.route('/supermarkets')
 def supermarkets():
-    # Bygg sökvägen till filen i static/-mappen
     filväg = os.path.join(app.static_folder, 'supermarket.geojson')
+    with open(filväg, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+    return jsonify(data)
 
-    # Läs och returnera filen som JSON
+# Skickar fuel.geojson till webbläsaren när
+# JavaScript anropar fetch('/fuel')
+
+
+@app.route('/fuel')
+def fuel():
+    filväg = os.path.join(app.static_folder, 'fuel.geojson')
     with open(filväg, 'r', encoding='utf-8') as f:
         data = json.load(f)
     return jsonify(data)

@@ -24,6 +24,15 @@
   -->
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
+    />
+
     <style>
       /*
       Tar bort webbläsarens standardmarginaler så att kartan
@@ -186,6 +195,20 @@
         border-color: purple;
         color: purple;
       }
+
+      #visaFuel {
+        border-color: darkred;
+        color: darkred;
+      }
+
+      /*
+  Knappen för Task 5.1 får en orange färg för att
+  representera munkens färg och skilja den från Task 5-knappen.
+*/
+      #visaDonut {
+        border-color: darkorange;
+        color: darkorange;
+      }
     </style>
   </head>
   <body>
@@ -204,6 +227,8 @@
       <button onclick="laggTillLinje()">📏 Linje</button>
       <button onclick="laggTillPolygon()">🔷 Polygon</button>
       <button id="rensa" onclick="rensaKarta()">🗑 Rensa</button>
+      <button id="visaFuel" onclick="visaTask5()">⛽ Bränslestationer</button>
+      <button id="visaDonut" onclick="visaTask5_1()">🍩 Donut-kluster</button>
 
       <!--
       Task 2 – visar 5 utvalda platser i Stockholm som markörer
@@ -252,6 +277,9 @@
     redan finns i dokumentet när Leaflet försöker hitta det.
   -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 
     <script>
       // ═══════════════════════════════════════════════════════════
@@ -749,6 +777,238 @@
 
         // Zoomar kartan så att hela bilden syns
         karta.fitBounds(avgränsning, { padding: [40, 40] });
+      }
+
+      var task5Lager = null;
+
+      function visaTask5() {
+        if (task5Lager) {
+          karta.removeLayer(task5Lager);
+          task5Lager = null;
+          return;
+        }
+
+        var kluster = L.markerClusterGroup();
+
+        fetch("/fuel")
+          .then(function (svar) {
+            return svar.json();
+          })
+          .then(function (data) {
+            data.features.forEach(function (feature) {
+              var koordinater = feature.geometry.coordinates;
+              var namn = feature.properties.name || "Okänd station";
+              var markör = L.marker([koordinater[1], koordinater[0]]);
+              markör.bindPopup("<b>⛽ " + namn + "</b>");
+              kluster.addLayer(markör);
+            });
+            task5Lager = kluster;
+            karta.addLayer(task5Lager);
+            karta.fitBounds(task5Lager.getBounds(), { padding: [40, 40] });
+          });
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // TASK 5.1 — BRÄNSLESTATIONER MED DONUT-KLUSTER
+      //
+      // Samma data som Task 5 men klusterikonen är en munkform (donut)
+      // uppdelad i färgade sektorer per bränslebolag.
+      //
+      // iconCreateFunction anropas av MarkerCluster varje gång ett
+      // kluster ska ritas. Vi räknar hur många stationer per bolag
+      // som finns i klustret och ritar en SVG-cirkel med sektorer.
+      //
+      // SVG-sektorn beräknas med trigonometri:
+      //   x = cx + r * cos(vinkel)
+      //   y = cy + r * sin(vinkel)
+      // ═══════════════════════════════════════════════════════════
+      var task5_1Lager = null;
+
+      // Färgkarta för olika bränslebolag
+      var bolagsFärger = {
+        Shell: "#ff0000",
+        "Circle K": "#cc0000",
+        OKQ8: "#f5a623",
+        Preem: "#00873c",
+        St1: "#003087",
+        ST1: "#003087",
+        st1: "#003087",
+        Tanka: "#9b59b6",
+        Ingo: "#1abc9c",
+        IDS: "#555555",
+      };
+
+      function visaTask5_1() {
+        /*
+    Om Task 5.1 redan visas tar vi bort klusterlagret
+    och återställer variabeln till null.
+  */
+        if (task5_1Lager) {
+          karta.removeLayer(task5_1Lager);
+          task5_1Lager = null;
+          return;
+        }
+
+        /*
+    Skapar ett MarkerCluster-lager med en anpassad ikonfunktion.
+    iconCreateFunction anropas automatiskt när kluster ska ritas.
+    Parametern 'kluster' innehåller information om alla markörer
+    som ingår i klustret.
+  */
+        var donutKluster = L.markerClusterGroup({
+          iconCreateFunction: function (kluster) {
+            /*
+        Hämtar alla markörer i klustret och räknar hur många
+        som tillhör varje bränslebolag.
+      */
+            var markörer = kluster.getAllChildMarkers();
+            var bolagsRäkning = {};
+
+            markörer.forEach(function (m) {
+              var bolag = m.options.bolag || "Okänt";
+              bolagsRäkning[bolag] = (bolagsRäkning[bolag] || 0) + 1;
+            });
+
+            var totalt = markörer.length;
+            var storlek = totalt < 5 ? 40 : totalt < 10 ? 50 : 60;
+            var radie = storlek / 2;
+            var inreRadie = radie * 0.5; // Hålet i mitten av munken
+
+            /*
+        Bygger SVG-sektorer för varje bränslebolag.
+        Varje sektor beräknas med trigonometri utifrån
+        hur stor andel av klustret bolaget utgör.
+      */
+            var sektorer = "";
+            var startVinkel = -Math.PI / 2; // Börjar kl 12
+
+            Object.keys(bolagsRäkning).forEach(function (bolag) {
+              var andel = bolagsRäkning[bolag] / totalt;
+              var slutVinkel = startVinkel + andel * 2 * Math.PI;
+              var färg = bolagsFärger[bolag] || "#888888";
+
+              /*
+          Beräknar punkterna för sektorns yttre och inre båge.
+          largeArcFlag = 1 om sektorn är större än 180 grader.
+        */
+              var x1 = radie + radie * Math.cos(startVinkel);
+              var y1 = radie + radie * Math.sin(startVinkel);
+              var x2 = radie + radie * Math.cos(slutVinkel);
+              var y2 = radie + radie * Math.sin(slutVinkel);
+              var ix1 = radie + inreRadie * Math.cos(startVinkel);
+              var iy1 = radie + inreRadie * Math.sin(startVinkel);
+              var ix2 = radie + inreRadie * Math.cos(slutVinkel);
+              var iy2 = radie + inreRadie * Math.sin(slutVinkel);
+              var largeArc = andel > 0.5 ? 1 : 0;
+
+              sektorer +=
+                '<path d="M ' +
+                ix1 +
+                " " +
+                iy1 +
+                " L " +
+                x1 +
+                " " +
+                y1 +
+                " A " +
+                radie +
+                " " +
+                radie +
+                " 0 " +
+                largeArc +
+                " 1 " +
+                x2 +
+                " " +
+                y2 +
+                " L " +
+                ix2 +
+                " " +
+                iy2 +
+                " A " +
+                inreRadie +
+                " " +
+                inreRadie +
+                " 0 " +
+                largeArc +
+                " 0 " +
+                ix1 +
+                " " +
+                iy1 +
+                ' Z" fill="' +
+                färg +
+                '" stroke="white" stroke-width="1"/>';
+
+              startVinkel = slutVinkel;
+            });
+
+            /*
+        Sätter ihop hela SVG-ikonen med sektorer och
+        ett antal i mitten av munken.
+      */
+            var svg =
+              '<svg width="' +
+              storlek +
+              '" height="' +
+              storlek +
+              '" ' +
+              'xmlns="http://www.w3.org/2000/svg">' +
+              sektorer +
+              '<circle cx="' +
+              radie +
+              '" cy="' +
+              radie +
+              '" r="' +
+              inreRadie +
+              '" ' +
+              'fill="white" stroke="#ccc" stroke-width="1"/>' +
+              '<text x="' +
+              radie +
+              '" y="' +
+              (radie + 4) +
+              '" ' +
+              'text-anchor="middle" font-size="11" font-weight="bold" fill="#333">' +
+              totalt +
+              "</text>" +
+              "</svg>";
+
+            return L.divIcon({
+              html: svg,
+              className: "",
+              iconSize: [storlek, storlek],
+              iconAnchor: [radie, radie],
+            });
+          },
+        });
+
+        fetch("/fuel")
+          .then(function (svar) {
+            return svar.json();
+          })
+          .then(function (data) {
+            data.features.forEach(function (feature) {
+              var koordinater = feature.geometry.coordinates;
+              var namn = feature.properties.name || "Okänd station";
+              var bolag =
+                feature.properties.brand ||
+                feature.properties.operator ||
+                "Okänt";
+
+              /*
+          Sparar bolaget som ett alternativ på markören så att
+          iconCreateFunction kan komma åt det via m.options.bolag.
+        */
+              var markör = L.marker([koordinater[1], koordinater[0]], {
+                bolag: bolag,
+              });
+
+              markör.bindPopup("<b>⛽ " + namn + "</b><br>Bolag: " + bolag);
+              donutKluster.addLayer(markör);
+            });
+
+            task5_1Lager = donutKluster;
+            karta.addLayer(task5_1Lager);
+            karta.fitBounds(task5_1Lager.getBounds(), { padding: [40, 40] });
+          });
       }
     </script>
   </body>
