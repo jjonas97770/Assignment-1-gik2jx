@@ -54,6 +54,24 @@ def schools():
             })
     return jsonify(skolor)
 
+# Läser Stockholm_pop.csv och skickar innehållet som JSON
+# till webbläsaren när JavaScript anropar fetch('/population')
+
+
+@app.route('/population')
+def population():
+    filväg = os.path.join(app.static_folder, 'Stockholm_pop.csv')
+    befolkning = []
+    with open(filväg, 'r', encoding='utf-8') as f:
+        läsare = csv.DictReader(f, delimiter=';')
+        for rad in läsare:
+            befolkning.append({
+                'name': rad['Name'],
+                'lat':  float(rad['Latitude']),
+                'lng':  float(rad['Longitude'])
+            })
+    return jsonify(befolkning)
+
 # Tar emot koordinater och antal kluster (k) från webbläsaren,
 # utför k-means klustring och returnerar vilket kluster
 # varje punkt tillhör samt centroidernas positioner

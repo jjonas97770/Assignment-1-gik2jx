@@ -227,6 +227,15 @@
         border-color: darkgreen;
         color: darkgreen;
       }
+
+      /*
+  Knappen för skolbuffertar får en mörkblå färg för att
+  representera stadsplanering och befolkningsanalys.
+*/
+      #visaBuffer {
+        border-color: darkblue;
+        color: darkblue;
+      }
     </style>
   </head>
   <body>
@@ -248,6 +257,7 @@
       <button id="visaFuel" onclick="visaTask5()">⛽ Bränslestationer</button>
       <button id="visaDonut" onclick="visaTask5_1()">🍩 Donut-kluster</button>
       <button id="visaKmeans" onclick="visaTask7()">🏫 K-means</button>
+      <button id="visaBuffer" onclick="visaTask8()">🏘 Skolbuffertar</button>
 
       <!--
       Task 2 – visar 5 utvalda platser i Stockholm som markörer
@@ -1557,6 +1567,206 @@
                 task7Visas = true;
               });
           });
+      }
+
+      // ═══════════════════════════════════════════════════════════
+      // SKOLBUFFERTAR OCH BEFOLKNINGSANALYS
+      //
+      // Hämtar skolors och befolkningspunkters koordinater från
+      // Flask-servern och utför en geografisk bufferanalys.
+      //
+      // Analys:
+      //   1. Skapar 2km buffertzoner runt varje skola med Turf.js
+      //   2. Kontrollerar vilka befolkningspunkter som ligger
+      //      utanför alla skolbuffertar
+      //   3. Markerar dessa punkter med röd färg på kartan
+      //   4. Gröna punkter = inom 2km från en skola
+      //   5. Röda punkter = mer än 2km från närmaste skola
+      // ═══════════════════════════════════════════════════════════
+      var task8Lager = [];
+      var task8Visas = false;
+
+      function visaTask8() {
+        /*
+    Om analysen redan visas tar vi bort alla lager
+    och stänger sidebaren.
+  */
+        if (task8Visas) {
+          task8Lager.forEach(function (l) {
+            karta.removeLayer(l);
+          });
+          task8Lager = [];
+          task8Visas = false;
+          document.getElementById("sidebar").style.display = "none";
+          return;
+        }
+
+        /*
+    Hämtar både skoldata och befolkningsdata parallellt
+    med Promise.all() för att minimera väntetiden.
+  */
+        Promise.all([
+          fetch("/schools").then(function (r) {
+            return r.json();
+          }),
+          fetch("/population").then(function (r) {
+            return r.json();
+          }),
+        ]).then(function (resultat) {
+          var skolor = resultat[0];
+          var befolkning = resultat[1];
+
+          /*
+      Skapar en 2km buffertzon runt varje skola med Turf.js.
+      Buffertarna används sedan för att kontrollera om
+      befolkningspunkter ligger inom täckningsområdet.
+    */
+          var buffertar = skolor.map(function (skola) {
+            var punkt = turf.point([skola.lng, skola.lat]);
+            return turf.buffer(punkt, 2, { units: "kilometers" });
+          });
+
+          /*
+      Ritar ut buffertzoner på kartan som halvtransparenta
+      blå cirklar för att visualisera skolornas täckningsområde.
+    */
+          buffertar.forEach(function (buffer) {
+            var bufferLager = L.geoJSON(buffer, {
+              style: {
+                color: "#3498db",
+                fillColor: "#3498db",
+                fillOpacity: 0.08,
+                weight: 1.5,
+                dashArray: "5, 5",
+              },
+            });
+            bufferLager.addTo(karta);
+            task8Lager.push(bufferLager);
+          });
+
+          /*
+      Ritar ut skolornas positioner som blå markörer
+      så att de syns tydligt på kartan.
+    */
+          skolor.forEach(function (skola) {
+            var markör = L.circleMarker([skola.lat, skola.lng], {
+              radius: 6,
+              color: "#2980b9",
+              fillColor: "#2980b9",
+              fillOpacity: 0.9,
+              weight: 2,
+            });
+            markör.bindPopup("<b>🏫 " + skola.name + "</b><br>Skola");
+            markör.addTo(karta);
+            task8Lager.push(markör);
+          });
+
+          /*
+      Kontrollerar varje befolkningspunkt om den ligger
+      inom någon av skolans buffertzoner med
+      turf.booleanPointInPolygon().
+    */
+          var inomBuffer = 0;
+          var utomBuffer = 0;
+          var utomPunkter = [];
+
+          befolkning.forEach(function (person) {
+            var punkt = turf.point([person.lng, person.lat]);
+            var täckt = false;
+
+            /*
+        Loopar igenom alla buffertar och kontrollerar om
+        befolkningspunkten ligger inom någon av dem.
+        Avslutar loopen så fort en träff hittas.
+      */
+            for (var i = 0; i < buffertar.length; i++) {
+              if (turf.booleanPointInPolygon(punkt, buffertar[i])) {
+                täckt = true;
+                break;
+              }
+            }
+
+            /*
+        Gröna markörer = befolkningspunkter inom 2km från en skola.
+        Röda markörer = befolkningspunkter mer än 2km från närmaste skola.
+      */
+            var färg = täckt ? "green" : "red";
+            if (täckt) {
+              inomBuffer++;
+            } else {
+              utomBuffer++;
+              utomPunkter.push(person);
+            }
+
+            var markör = L.circleMarker([person.lat, person.lng], {
+              radius: 7,
+              color: färg,
+              fillColor: färg,
+              fillOpacity: 0.85,
+              weight: 2,
+            });
+
+            markör.bindPopup(
+              "<b>👥 " +
+                person.name +
+                "</b><br>" +
+                (täckt
+                  ? "✅ Inom 2km från en skola"
+                  : "❌ Mer än 2km från närmaste skola"),
+            );
+
+            markör.addTo(karta);
+            task8Lager.push(markör);
+          });
+
+          /*
+      Visar en sammanfattning i sidebaren med statistik
+      om täckningsgraden och en lista över icke-täckta punkter.
+    */
+          var sidebar = document.getElementById("sidebar");
+          var innehall = document.getElementById("sidebar-innehall");
+          sidebar.style.display = "block";
+          innehall.innerHTML =
+            "<h3>Skolbuffertar 2km</h3>" +
+            '<div class="platskort">' +
+            "<p>🏫 Antal skolor: <b>" +
+            skolor.length +
+            "</b></p>" +
+            "<p>👥 Antal befolkningspunkter: <b>" +
+            befolkning.length +
+            "</b></p>" +
+            '<p style="color:green">✅ Inom 2km från skola: <b>' +
+            inomBuffer +
+            "</b></p>" +
+            '<p style="color:red">❌ Utanför 2km från skola: <b>' +
+            utomBuffer +
+            "</b></p>" +
+            "</div>" +
+            '<h3 style="margin-top:12px">Ej täckta områden:</h3>';
+
+          utomPunkter.forEach(function (p) {
+            var kort = document.createElement("div");
+            kort.className = "platskort";
+            kort.style.borderLeft = "4px solid red";
+            kort.innerHTML =
+              "<h3>" +
+              p.name +
+              "</h3>" +
+              "<p>📍 " +
+              p.lat.toFixed(3) +
+              "°N, " +
+              p.lng.toFixed(3) +
+              "°E</p>";
+            kort.addEventListener("click", function () {
+              karta.setView([p.lat, p.lng], 13);
+            });
+            innehall.appendChild(kort);
+          });
+
+          var grupp = L.featureGroup(task8Lager);
+          karta.fitBounds(grupp.getBounds(), { padding: [40, 40] });
+          task8Visas = true;
+        });
       }
     </script>
   </body>
